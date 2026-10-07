@@ -44,7 +44,17 @@ async def evaluate_generation(
             response=generation.data,
             dataset=dataset,
         )
-        data = EvalResultData.model_validate(raw) if raw is not None else None
+        if raw is None:
+            # `evaluate_response` returns `resp.json()` unvalidated, so an HTTP 200 whose
+            # body is `null` arrives here as None. Recording that as EVALUATED makes a task
+            # the service never graded indistinguishable from one that scored zero, and
+            # `score_evaluations` then reports the run complete over it.
+            return EvalResult(
+                task_id=task_id,
+                status=EvalStatus.ERROR,
+                error="evaluation service returned no result",
+            )
+        data = EvalResultData.model_validate(raw)
         return EvalResult(task_id=task_id, status=EvalStatus.EVALUATED, result=data)
     except Exception as exc:
         return EvalResult(task_id=task_id, status=EvalStatus.ERROR, error=format_exception(exc))
