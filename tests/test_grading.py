@@ -3,6 +3,7 @@ from typing import Any
 from benchmark_runtime.grading import evaluate_generation, score_evaluations
 from benchmark_runtime.schemas import (
     EvalResult,
+    EvalResultData,
     EvalStatus,
     GenerationResult,
     GenerationStatus,
@@ -222,6 +223,31 @@ async def test_a_run_whose_task_was_never_graded_is_not_complete() -> None:
         client=FakeScoringClient(), evaluations={"t1": evaluation}, task_ids=["t1"], dataset=None
     )
     assert score.complete is False
+
+
+async def test_the_submitted_payload_carries_the_evaluation_result() -> None:
+    """The scorer is given the per-task results, so they have to survive the round trip.
+
+    Without this, every scoring test here passes even if `score_evaluations` drops the nested
+    `result` entirely: `_evaluated()` leaves it None and `FakeScoringClient` answers with a
+    fixed payload whatever it is handed.
+    """
+    client = FakeScoringClient()
+    evaluation = EvalResult(
+        task_id="t1",
+        status=EvalStatus.EVALUATED,
+        result=EvalResultData(pass_percentage=75.0, weighted_pass_percentage=60.0,
+                              eval_version="v2"),
+    )
+    await score_evaluations(
+        client=client, evaluations={"t1": evaluation}, task_ids=["t1"], dataset=None
+    )
+    assert client.submitted is not None
+    submitted = client.submitted["t1"]["result"]
+    assert submitted is not None, "the nested evaluation result must reach the scorer"
+    assert submitted["pass_percentage"] == 75.0
+    assert submitted["weighted_pass_percentage"] == 60.0
+    assert submitted["eval_version"] == "v2"
 
 
 async def test_every_requested_task_is_submitted_even_when_absent() -> None:
